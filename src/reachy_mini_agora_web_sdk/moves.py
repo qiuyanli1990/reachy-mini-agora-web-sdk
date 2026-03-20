@@ -553,6 +553,9 @@ class MovementManager:
             self.state.move_start_time is not None
             and current_time - self.state.move_start_time >= self.state.current_move.duration
         ):
+            # Remember if the move that just finished was a non-breathing move
+            # so we can immediately queue a return-to-neutral transition.
+            finished_move = self.state.current_move
             self.state.current_move = None
             self.state.move_start_time = None
 
@@ -562,13 +565,34 @@ class MovementManager:
                 # Any real move cancels breathing mode flag
                 self._breathing_active = isinstance(self.state.current_move, BreathingMove)
                 logger.debug(f"Starting new move, duration: {self.state.current_move.duration}s")
+            elif finished_move is not None and not isinstance(finished_move, BreathingMove):
+                # A non-breathing move just finished with nothing queued behind it.
+                # Immediately start breathing to smoothly interpolate back to neutral,
+                # rather than waiting for the idle timer (which may never fire while
+                # speech offsets keep resetting last_activity_time).
+                try:
+                    _, current_antennas = self.current_robot.get_current_joint_positions()
+                    current_head_pose = self.current_robot.get_current_head_pose()
+
+                    self._breathing_active = True
+                    self.state.update_activity()
+
+                    breathing_move = BreathingMove(
+                        interpolation_start_pose=current_head_pose,
+                        interpolation_start_antennas=current_antennas,
+                        interpolation_duration=1.0,
+                    )
+                    self.move_queue.append(breathing_move)
+                    logger.debug("Queued breathing to return to neutral after move completed")
+                except Exception as e:
+                    self._breathing_active = False
+                    logger.error("Failed to queue post-move breathing: %s", e)
 
     def _manage_breathing(self, current_time: float) -> None:
         """Manage automatic breathing when idle."""
         if (
             self.state.current_move is None
             and not self.move_queue
-            and not self._is_listening
             and not self._breathing_active
         ):
             idle_for = current_time - self.state.last_activity_time

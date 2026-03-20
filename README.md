@@ -94,6 +94,9 @@ git clone <repo-url> reachy-mini-agora-web-sdk
 source /path/to/venv/bin/activate
 reachy-mini-daemon
 ```
+> **Note:** If no physical Reachy Mini robot is connected, you will see the warning
+> `Could not auto-enable daemon motor mode at startup`. This is expected and can be safely ignored
+> when developing/testing without hardware.
 
 4. Start app (Terminal B)
 ```bash
